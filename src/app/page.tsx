@@ -1,6 +1,7 @@
+
 "use client";
 
-import React, { useState, useEffect, useCallback } from 'react';
+import React, { useState, useEffect, useCallback, useRef } from 'react';
 import { Header } from '@/components/gesture-flow/Header';
 import { GestureMappingForm } from '@/components/gesture-flow/GestureMappingForm';
 import { GestureListItem } from '@/components/gesture-flow/GestureListItem';
@@ -20,9 +21,8 @@ import {
   DialogDescription,
   DialogHeader,
   DialogTitle,
-  DialogTrigger,
 } from "@/components/ui/dialog";
-import Image from 'next/image';
+import { Alert, AlertDescription, AlertTitle } from "@/components/ui/alert";
 
 const LOCAL_STORAGE_KEY = 'gestureFlowMappings';
 
@@ -36,6 +36,9 @@ export default function ConfigurationPanelPage() {
   const [isLoadingSuggestions, setIsLoadingSuggestions] = useState(false);
   const { toast } = useToast();
 
+  const videoRef = useRef<HTMLVideoElement>(null);
+  const [hasCameraPermission, setHasCameraPermission] = useState<boolean | null>(null);
+
   useEffect(() => {
     const storedMappings = localStorage.getItem(LOCAL_STORAGE_KEY);
     if (storedMappings) {
@@ -48,8 +51,40 @@ export default function ConfigurationPanelPage() {
   }, [gestureMappings]);
 
   useEffect(() => {
+    const getCameraPermission = async () => {
+      try {
+        const stream = await navigator.mediaDevices.getUserMedia({ video: true });
+        setHasCameraPermission(true);
+        if (videoRef.current) {
+          videoRef.current.srcObject = stream;
+        }
+      } catch (error) {
+        console.error('Error accessing camera:', error);
+        setHasCameraPermission(false);
+        toast({
+          variant: 'destructive',
+          title: 'Camera Access Denied',
+          description: 'Please enable camera permissions in your browser settings to use this app.',
+        });
+      }
+    };
+    getCameraPermission();
+  }, [toast]);
+
+  useEffect(() => {
+    if (hasCameraPermission === false && isRecognitionActive) {
+      setIsRecognitionActive(false);
+      toast({
+        title: "Recognition Deactivated",
+        description: "Camera access is required for gesture recognition.",
+        variant: "default",
+      });
+    }
+  }, [hasCameraPermission, isRecognitionActive, toast]);
+
+  useEffect(() => {
     let intervalId: NodeJS.Timeout;
-    if (isRecognitionActive && gestureMappings.length > 0) {
+    if (isRecognitionActive && hasCameraPermission === true && gestureMappings.length > 0) {
       intervalId = setInterval(() => {
         const randomIndex = Math.floor(Math.random() * gestureMappings.length);
         const detectedGesture = gestureMappings[randomIndex];
@@ -63,10 +98,10 @@ export default function ConfigurationPanelPage() {
           ),
           variant: "default",
         });
-      }, 5000); // Simulate detection every 5 seconds
+      }, 5000);
     }
     return () => clearInterval(intervalId);
-  }, [isRecognitionActive, gestureMappings, toast]);
+  }, [isRecognitionActive, hasCameraPermission, gestureMappings, toast]);
 
   const handleFormSubmit = (mapping: GestureMapping) => {
     setGestureMappings(prev => {
@@ -147,6 +182,7 @@ export default function ConfigurationPanelPage() {
                   id="recognition-switch"
                   checked={isRecognitionActive}
                   onCheckedChange={setIsRecognitionActive}
+                  disabled={hasCameraPermission !== true}
                   aria-label="Toggle gesture recognition"
                 />
               </div>
@@ -155,13 +191,32 @@ export default function ConfigurationPanelPage() {
           </CardHeader>
           <CardContent className="grid md:grid-cols-3 gap-6">
             <div className="md:col-span-1 space-y-4 p-4 border rounded-lg shadow-inner bg-muted/30">
-              <h3 className="text-lg font-semibold flex items-center"><Camera className="mr-2 h-5 w-5 text-primary" /> Camera Feed (Simulated)</h3>
-              <div data-ai-hint="camera lens" className="aspect-video bg-foreground/5 rounded-md flex items-center justify-center border border-dashed">
-                 <Image src="https://placehold.co/600x400.png/e0f2f1/4db6ac?text=Camera+View" alt="Simulated camera feed" width={600} height={400} className="rounded-md object-cover" />
+              <h3 className="text-lg font-semibold flex items-center"><Camera className="mr-2 h-5 w-5 text-primary" /> Camera Feed</h3>
+              <div className="aspect-video bg-foreground/5 rounded-md flex items-center justify-center border border-dashed relative">
+                 <video ref={videoRef} className="w-full h-full aspect-video rounded-md object-cover" autoPlay muted playsInline />
+                 {hasCameraPermission === null && (
+                    <div className="absolute inset-0 flex flex-col items-center justify-center bg-background/80 rounded-md">
+                        <Loader2 className="h-8 w-8 animate-spin text-primary mb-2" />
+                        <p className="text-muted-foreground">Initializing camera...</p>
+                    </div>
+                 )}
               </div>
-              <p className={`text-sm ${isRecognitionActive ? 'text-green-600' : 'text-red-600'} font-medium flex items-center`}>
-                {isRecognitionActive ? <WifiOff className="mr-2 h-4 w-4 rotate-180"/> : <WifiOff className="mr-2 h-4 w-4"/>}
-                Recognition: {isRecognitionActive ? 'Active' : 'Inactive'}
+              {hasCameraPermission === false && (
+                <Alert variant="destructive" className="mt-2">
+                  <AlertTriangle className="h-4 w-4" />
+                  <AlertTitle>Camera Access Denied</AlertTitle>
+                  <AlertDescription>
+                    Please enable camera permissions in your browser settings to use this feature.
+                  </AlertDescription>
+                </Alert>
+              )}
+              <p className={`text-sm font-medium flex items-center ${isRecognitionActive && hasCameraPermission === true ? 'text-green-600' : 'text-red-600'}`}>
+                {isRecognitionActive && hasCameraPermission === true ? <WifiOff className="mr-2 h-4 w-4 rotate-180"/> : <WifiOff className="mr-2 h-4 w-4"/>}
+                Recognition: {
+                  hasCameraPermission === false ? 'Inactive (No Camera)' :
+                  hasCameraPermission === null ? 'Inactive (Camera initializing)' :
+                  isRecognitionActive ? 'Active' : 'Inactive'
+                }
               </p>
             </div>
 
@@ -259,3 +314,5 @@ export default function ConfigurationPanelPage() {
     </div>
   );
 }
+
+    
