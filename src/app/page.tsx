@@ -14,7 +14,7 @@ import { Separator } from '@/components/ui/separator';
 import { useToast } from '@/hooks/use-toast';
 import type { GestureMapping, AISuggestion } from '@/types';
 import { suggestGestureMappings, type GestureSuggestionOutput } from '@/ai/flows/gesture-suggestion';
-import { PlusCircle, Wand2, Camera, Settings, WifiOff, AlertTriangle, Loader2 } from 'lucide-react';
+import { PlusCircle, Wand2, Camera, Settings, WifiOff, AlertTriangle, Loader2, Hand } from 'lucide-react';
 import {
   Dialog,
   DialogContent,
@@ -38,6 +38,7 @@ export default function ConfigurationPanelPage() {
 
   const videoRef = useRef<HTMLVideoElement>(null);
   const [hasCameraPermission, setHasCameraPermission] = useState<boolean | null>(null);
+  const [lastTriggeredAction, setLastTriggeredAction] = useState<string | null>(null);
 
   useEffect(() => {
     const storedMappings = localStorage.getItem(LOCAL_STORAGE_KEY);
@@ -74,6 +75,7 @@ export default function ConfigurationPanelPage() {
   useEffect(() => {
     if (hasCameraPermission === false && isRecognitionActive) {
       setIsRecognitionActive(false);
+      setLastTriggeredAction(null);
       toast({
         title: "Recognition Deactivated",
         description: "Camera access is required for gesture recognition.",
@@ -88,17 +90,29 @@ export default function ConfigurationPanelPage() {
       intervalId = setInterval(() => {
         const randomIndex = Math.floor(Math.random() * gestureMappings.length);
         const detectedGesture = gestureMappings[randomIndex];
+        
+        setLastTriggeredAction(detectedGesture.action);
+
+        // Perform in-page actions for specific simulated gestures
+        if (detectedGesture.action === "Scroll Up") {
+          window.scrollBy(0, -100); // Scroll up by 100 pixels
+        } else if (detectedGesture.action === "Scroll Down") {
+          window.scrollBy(0, 100); // Scroll down by 100 pixels
+        }
+
         toast({
           title: "Gesture Detected!",
           description: (
             <div className="flex items-center">
-              <Camera className="h-5 w-5 mr-2 text-primary" />
+              <Hand className="h-5 w-5 mr-2 text-primary" />
               <span><strong>{detectedGesture.gestureName}</strong> triggered <strong>{detectedGesture.action}</strong></span>
             </div>
           ),
           variant: "default",
         });
-      }, 5000);
+      }, 3000); // Reduced interval to 3 seconds for more frequent feedback
+    } else {
+      setLastTriggeredAction(null); // Clear last action if recognition stops or conditions not met
     }
     return () => clearInterval(intervalId);
   }, [isRecognitionActive, hasCameraPermission, gestureMappings, toast]);
@@ -115,6 +129,7 @@ export default function ConfigurationPanelPage() {
     });
     toast({ title: editingMapping ? "Gesture Updated" : "Gesture Added", description: `${mapping.gestureName} configured for ${mapping.action}.`, variant: "default" });
     setEditingMapping(null);
+    setIsFormOpen(false);
   };
 
   const handleEditMapping = (mapping: GestureMapping) => {
@@ -181,13 +196,16 @@ export default function ConfigurationPanelPage() {
                 <Switch
                   id="recognition-switch"
                   checked={isRecognitionActive}
-                  onCheckedChange={setIsRecognitionActive}
-                  disabled={hasCameraPermission !== true}
+                  onCheckedChange={(checked) => {
+                    setIsRecognitionActive(checked);
+                    if (!checked) setLastTriggeredAction(null);
+                  }}
+                  disabled={hasCameraPermission !== true || gestureMappings.length === 0}
                   aria-label="Toggle gesture recognition"
                 />
               </div>
             </div>
-            <CardDescription>Manage your gesture mappings and application settings.</CardDescription>
+            <CardDescription>Manage your gesture mappings and application settings. {gestureMappings.length === 0 && hasCameraPermission === true ? "Add a gesture to enable recognition." : ""}</CardDescription>
           </CardHeader>
           <CardContent className="grid md:grid-cols-3 gap-6">
             <div className="md:col-span-1 space-y-4 p-4 border rounded-lg shadow-inner bg-muted/30">
@@ -206,18 +224,25 @@ export default function ConfigurationPanelPage() {
                   <AlertTriangle className="h-4 w-4" />
                   <AlertTitle>Camera Access Denied</AlertTitle>
                   <AlertDescription>
-                    Please enable camera permissions in your browser settings to use this feature.
+                    Enable camera permissions in browser settings.
                   </AlertDescription>
                 </Alert>
               )}
               <p className={`text-sm font-medium flex items-center ${isRecognitionActive && hasCameraPermission === true ? 'text-green-600' : 'text-red-600'}`}>
                 {isRecognitionActive && hasCameraPermission === true ? <WifiOff className="mr-2 h-4 w-4 rotate-180"/> : <WifiOff className="mr-2 h-4 w-4"/>}
                 Recognition: {
+                  gestureMappings.length === 0 && hasCameraPermission === true ? 'Inactive (Add Gestures)' :
                   hasCameraPermission === false ? 'Inactive (No Camera)' :
                   hasCameraPermission === null ? 'Inactive (Camera initializing)' :
                   isRecognitionActive ? 'Active' : 'Inactive'
                 }
               </p>
+              {lastTriggeredAction && isRecognitionActive && hasCameraPermission === true && (
+                <div className="mt-4 p-3 bg-primary/10 rounded-lg shadow">
+                  <p className="text-xs text-primary/80 font-medium uppercase tracking-wider mb-1">Last Simulated Action</p>
+                  <p className="text-xl font-semibold text-primary text-center">{lastTriggeredAction}</p>
+                </div>
+              )}
             </div>
 
             <div className="md:col-span-2 space-y-4">
@@ -230,6 +255,10 @@ export default function ConfigurationPanelPage() {
                   Get AI Suggestions
                 </Button>
               </div>
+                <p className="text-xs text-muted-foreground mt-2">
+                    Note: Gesture recognition is a simulation. OS-level actions (e.g., volume control) are not executed.
+                    'Scroll Up/Down' will demonstrate in-page scrolling.
+                </p>
             </div>
           </CardContent>
         </Card>
@@ -244,7 +273,7 @@ export default function ConfigurationPanelPage() {
                 <AlertTriangle className="w-12 h-12 text-muted-foreground mb-4" />
                 <p className="text-muted-foreground mb-2">You haven't configured any gestures yet.</p>
                 <p className="text-sm text-muted-foreground">
-                  Click "Add New Gesture" or "Get AI Suggestions" to get started.
+                  Click "Add New Gesture" or "Get AI Suggestions" to get started. Recognition will be enabled once you add a gesture.
                 </p>
               </CardContent>
             </Card>
@@ -314,5 +343,3 @@ export default function ConfigurationPanelPage() {
     </div>
   );
 }
-
-    
